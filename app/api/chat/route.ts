@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createMemoryItem, updateMemoryItem } from "@/lib/supabase";
+import { createMemoryItem, updateMemoryItem, createNotification } from "@/lib/supabase";
 import { generateNotificationContent } from "@/lib/llm";
 import { scheduleNotification } from "@/lib/upstash";
 import {
@@ -93,6 +93,17 @@ export async function POST(request: NextRequest) {
 
                         if (messageId) {
                             await updateMemoryItem(memoryItem.id, { scheduled_message_id: messageId });
+
+                            // Create a persistent notification log
+                            await createNotification({
+                                user_id: userId,
+                                memory_item_id: memoryItem.id,
+                                title: notificationContent.title,
+                                body: notificationContent.body,
+                                scheduled_at: dueDate.toISOString(),
+                                status: "scheduled",
+                                scheduled_message_id: messageId
+                            });
                         }
                     }
                 }

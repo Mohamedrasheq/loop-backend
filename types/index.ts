@@ -116,5 +116,18 @@ export interface AssistantResponse {
     suggested_steps: string[];
   }[];
   proposed_actions?: ProposedAction[];
+}// Notification Types
+export type NotificationStatus = "scheduled" | "sent" | "failed";
+
+export interface Notification {
+  id: string;
+  user_id: string;
+  memory_item_id: string | null;
+  title: string;
+  body: string;
+  scheduled_at: string;
+  status: NotificationStatus;
+  scheduled_message_id: string | null;
+  created_at: string;
 }
 

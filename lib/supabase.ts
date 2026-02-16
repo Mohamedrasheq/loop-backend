@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import type { MemoryItem } from "@/types";
+import type { MemoryItem, Notification, NotificationStatus } from "@/types";
 
 // Lazy initialization to avoid build-time errors
 let supabaseInstance: SupabaseClient | null = null;
@@ -299,3 +299,75 @@ export async function getUserPushToken(
         return null;
     }
 }
+
+// ── Notification Operations ──
+
+export async function createNotification(
+    notification: Omit<Notification, "id" | "created_at">
+): Promise<Notification | null> {
+    try {
+        const supabase = getSupabase();
+        const { data, error } = await supabase
+            .from("notifications")
+            .insert(notification)
+            .select()
+            .single();
+
+        if (error) {
+            console.error("Error creating notification log:", error);
+            return null;
+        }
+
+        return data;
+    } catch (error) {
+        console.error("Supabase connection error:", error);
+        return null;
+    }
+}
+
+export async function getNotificationsByUserId(
+    userId: string
+): Promise<Notification[]> {
+    try {
+        const supabase = getSupabase();
+        const { data, error } = await supabase
+            .from("notifications")
+            .select("*")
+            .eq("user_id", userId)
+            .order("scheduled_at", { ascending: false });
+
+        if (error) {
+            console.error("Error fetching notification history:", error);
+            return [];
+        }
+
+        return data || [];
+    } catch (error) {
+        console.error("Supabase connection error:", error);
+        return [];
+    }
+}
+
+export async function updateNotificationStatus(
+    scheduledMessageId: string,
+    status: NotificationStatus
+): Promise<boolean> {
+    try {
+        const supabase = getSupabase();
+        const { error } = await supabase
+            .from("notifications")
+            .update({ status })
+            .eq("scheduled_message_id", scheduledMessageId);
+
+        if (error) {
+            console.error("Error updating notification status:", error);
+            return false;
+        }
+
+        return true;
+    } catch (error) {
+        console.error("Supabase connection error:", error);
+        return false;
+    }
+}
+

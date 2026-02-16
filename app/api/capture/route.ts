@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { CaptureRequest, CaptureResponse } from "@/types";
 import { extractIntent, generateNotificationContent } from "@/lib/llm";
-import { createMemoryItem, updateMemoryItem } from "@/lib/supabase";
+import { createMemoryItem, updateMemoryItem, createNotification } from "@/lib/supabase";
 import { scheduleNotification } from "@/lib/upstash";
 
 /**
@@ -72,6 +72,17 @@ export async function POST(request: NextRequest) {
 
                             if (messageId) {
                                 await updateMemoryItem(memoryItem.id, { scheduled_message_id: messageId });
+
+                                // Create a persistent notification log
+                                await createNotification({
+                                    user_id: userId,
+                                    memory_item_id: memoryItem.id,
+                                    title: notificationContent.title,
+                                    body: notificationContent.body,
+                                    scheduled_at: dueDate.toISOString(),
+                                    status: "scheduled",
+                                    scheduled_message_id: messageId
+                                });
                             }
                         }
                     }

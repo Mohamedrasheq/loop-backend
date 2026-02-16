@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Receiver } from "@upstash/qstash";
-import { getUserPushToken } from "@/lib/supabase";
+import { getUserPushToken, updateNotificationStatus } from "@/lib/supabase";
 import { sendPushNotification } from "@/lib/push";
 
 const receiver = new Receiver({
@@ -34,6 +34,7 @@ export async function POST(request: NextRequest) {
         }
 
         const { userId, title, body, data } = JSON.parse(bodyText);
+        const qstashMessageId = request.headers.get("upstash-message-id");
 
         if (!userId || !title || !body) {
             return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -48,11 +49,17 @@ export async function POST(request: NextRequest) {
 
         const result = await sendPushNotification(pushToken, title, body, data);
 
-        if (!result.success) {
+        if (result.success) {
+            if (qstashMessageId) {
+                await updateNotificationStatus(qstashMessageId, "sent");
+            }
+            return NextResponse.json({ success: true });
+        } else {
+            if (qstashMessageId) {
+                await updateNotificationStatus(qstashMessageId, "failed");
+            }
             return NextResponse.json({ error: result.error }, { status: 500 });
         }
-
-        return NextResponse.json({ success: true });
     } catch (error) {
         console.error("Error in /api/push-worker:", error);
         return NextResponse.json({ error: "Internal server error" }, { status: 500 });
