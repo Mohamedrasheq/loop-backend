@@ -9,6 +9,8 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.47",
+    "@anthropic-ai/sdk": "^0.77.0",
     "@clerk/nextjs": "^6.37.3",
     "@supabase/supabase-js": "^2.94.0",
     "@upstash/qstash": "^2.9.0",
@@ -17,7 +19,8 @@
     "next": "16.1.6",
     "openai": "^6.17.0",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

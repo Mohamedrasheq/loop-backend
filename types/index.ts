@@ -131,3 +131,59 @@ export interface Notification {
   created_at: string;
 }
 
+// ── Per-User Credential Types ──
+
+export interface UserCredential {
+  id: string;
+  user_id: string;
+  service: string;
+  encrypted_credentials: string;
+  iv: string;
+  auth_tag: string;
+  metadata: Record<string, any>;
+  connected_at: string;
+  updated_at: string;
+}
+
+export interface CredentialConnectRequest {
+  userId: string;
+  service: string;
+  credentials: Record<string, string>;
+  metadata?: Record<string, any>;
+}
+
+export interface CredentialStatusResponse {
+  connected: Array<{
+    service: string;
+    metadata: Record<string, any>;
+    connected_at: string;
+  }>;
+  available: Array<{
+    name: string;
+    displayName: string;
+    description: string;
+    credentialFields: Array<{
+      key: string;
+      label: string;
+      type: string;
+      required: boolean;
+      helpUrl?: string;
+      placeholder?: string;
+    }>;
+  }>;
+}
+
+// ── Agent Types ──
+
+export interface AgentResponse {
+  reply: string;
+  captured_item?: any;
+  proposed_actions?: ProposedAction[];
+  tool_results?: Array<{
+    tool: string;
+    success: boolean;
+    data?: any;
+    displayMessage?: string;
+    error?: string;
+  }>;
+}

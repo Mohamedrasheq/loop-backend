@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { createMemoryItem, updateMemoryItem, createNotification } from "@/lib/supabase";
 import { generateNotificationContent } from "@/lib/llm";
 import { scheduleNotification } from "@/lib/upstash";
+import { runAgent } from "@/lib/claude-agent";
 import {
     CHAT_SYSTEM_PROMPT,
     buildChatUserPrompt,
 } from "@/lib/level1-prompts";
 import OpenAI from "openai";
 
-const MODEL = "gpt-4o-mini";
+const EXTRACTION_MODEL = "gpt-4o-mini";
 
 let openaiInstance: OpenAI | null = null;
 function getOpenAI(): OpenAI {
@@ -23,9 +24,10 @@ function getOpenAI(): OpenAI {
  * POST /api/chat
  *
  * Unified chat endpoint:
- * 1. Sends user message to LLM → extracts task + detects tool triggers
- * 2. Saves captured item to Supabase
- * 3. Returns reply + proposed actions in one response
+ * 1. Extracts tasks/items using OpenAI (fast, cheap)
+ * 2. Runs Claude Agent for tool-use and conversational reply
+ * 3. Saves captured items to Supabase
+ * 4. Returns reply + proposed actions + tool results
  */
 export async function POST(request: NextRequest) {
     try {
@@ -38,10 +40,11 @@ export async function POST(request: NextRequest) {
             );
         }
 
+        // Step 1: Extract task/item using OpenAI (keeps existing capture logic)
         const openai = getOpenAI();
 
-        const completion = await openai.chat.completions.create({
-            model: MODEL,
+        const extraction = await openai.chat.completions.create({
+            model: EXTRACTION_MODEL,
             messages: [
                 { role: "system", content: CHAT_SYSTEM_PROMPT },
                 { role: "user", content: buildChatUserPrompt(text, timezone) },
@@ -51,19 +54,18 @@ export async function POST(request: NextRequest) {
             response_format: { type: "json_object" },
         });
 
-        const rawContent = completion.choices[0]?.message?.content || "{}";
+        const rawContent = extraction.choices[0]?.message?.content || "{}";
         let parsed;
         try {
             parsed = JSON.parse(rawContent);
         } catch {
             parsed = {
-                reply: "Got it. I've noted this down.",
-                captured_item: { type: "note", title: text, context: null, due_at: null, urgency: "medium" },
+                captured_item: null,
                 proposed_actions: [],
             };
         }
 
-        // Save captured item to database
+        // Step 2: Save captured item to database (existing logic)
         const item = parsed.captured_item;
         if (item?.title) {
             const memoryItem = await createMemoryItem({
@@ -94,7 +96,6 @@ export async function POST(request: NextRequest) {
                         if (messageId) {
                             await updateMemoryItem(memoryItem.id, { scheduled_message_id: messageId });
 
-                            // Create a persistent notification log
                             await createNotification({
                                 user_id: userId,
                                 memory_item_id: memoryItem.id,
@@ -110,9 +111,13 @@ export async function POST(request: NextRequest) {
             }
         }
 
+        // Step 3: Run Claude Agent for conversational reply + tool use
+        const agentResponse = await runAgent(userId, text, timezone);
+
         return NextResponse.json({
-            reply: parsed.reply || "Got it. I've noted this down.",
+            reply: agentResponse.reply,
             proposed_actions: parsed.proposed_actions || [],
+            tool_results: agentResponse.tool_results,
         });
     } catch (error) {
         console.error("Error in /api/chat:", error);

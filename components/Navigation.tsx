@@ -104,6 +104,25 @@ const navItems = [
             </svg>
         ),
     },
+    {
+        href: "/integrations",
+        label: "Integrations",
+        icon: (
+            <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            >
+                <path d="M12 2v6m0 8v6M4.93 4.93l4.24 4.24m5.66 5.66l4.24 4.24M2 12h6m8 0h6M4.93 19.07l4.24-4.24m5.66-5.66l4.24-4.24" />
+            </svg>
+        ),
+    },
 ];
 
 export default function Navigation() {

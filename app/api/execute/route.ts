@@ -1,107 +1,97 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createGithubIssue, draftPRDescription } from "@/lib/github";
-import { createLinearIssue } from "@/lib/linear";
-import { createGmailDraft } from "@/lib/gmail";
-import { updateMemoryItemContext } from "@/lib/supabase";
+import { updateMemoryItemContext, getUserCredential } from "@/lib/supabase";
+import { decryptCredentials } from "@/lib/credentials";
+import { getService } from "@/lib/services/registry";
 
 /**
  * POST /api/execute
  * 
- * Purpose: Execute an action after user approval.
- * Level 2: Human-in-the-loop execution.
+ * Execute an action after user approval.
+ * Now uses per-user credentials from the database, NOT env vars.
  */
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
         const { userId, action, memoryItemId } = body;
 
-        console.log(`Executing action: ${action.type} for user: ${userId} in repo: ${action.payload.repo}`);
+        if (!userId || !action?.type) {
+            return NextResponse.json(
+                { error: "Missing required fields: userId, action" },
+                { status: 400 }
+            );
+        }
 
-        let result;
-        let successMessage = "Action executed successfully!";
+        console.log(`Executing action: ${action.type} for user: ${userId}`);
 
-        switch (action.type) {
-            case "create_github_issue":
-                result = await createGithubIssue(
-                    action.payload.repo,
-                    action.payload.title,
-                    action.payload.body
-                );
-                successMessage = `Issue created successfully: ${result.html_url}`;
-                // Update memory item context with the link to the new issue
-                if (memoryItemId) {
-                    await updateMemoryItemContext(
-                        memoryItemId,
-                        `GitHub Issue Created: ${result.html_url}`
-                    );
-                }
-                break;
+        // Map action types to service names and tool names
+        const actionToService: Record<string, { service: string; tool: string }> = {
+            create_github_issue: { service: "github", tool: "github_create_issue" },
+            draft_pr_description: { service: "github", tool: "github_draft_pr" },
+            create_linear_issue: { service: "linear", tool: "linear_create_issue" },
+            draft_gmail_reply: { service: "gmail", tool: "gmail_create_draft" },
+        };
 
-            case "draft_pr_description":
-                result = await draftPRDescription(
-                    action.payload.repo,
-                    action.payload.title,
-                    action.payload.body
-                );
-                successMessage = "PR Description drafted successfully! (Note: Level 2 only prepares the draft text)";
-                if (memoryItemId) {
-                    await updateMemoryItemContext(
-                        memoryItemId,
-                        `PR Description Drafted: ${action.payload.title}`
-                    );
-                }
-                break;
+        const mapping = actionToService[action.type];
+        if (!mapping) {
+            return NextResponse.json(
+                { error: `Unsupported action type: ${action.type}` },
+                { status: 400 }
+            );
+        }
 
-            case "create_linear_issue":
-                result = await createLinearIssue({
-                    title: action.payload.title,
-                    description: action.payload.description,
-                    teamId: action.payload.teamId,
-                    assigneeId: action.payload.assigneeId,
-                    priority: action.payload.priority,
-                    labelIds: action.payload.labelIds,
-                    projectId: action.payload.projectId,
-                    projectMilestoneId: action.payload.projectMilestoneId,
-                    cycleId: action.payload.cycleId,
-                    stateId: action.payload.stateId,
-                    dueDate: action.payload.dueDate,
-                    estimate: action.payload.estimate,
-                    subscriberIds: action.payload.subscriberIds,
-                    parentId: action.payload.parentId,
-                });
-                successMessage = `Linear issue created successfully: ${result.url}`;
-                if (memoryItemId) {
-                    await updateMemoryItemContext(
-                        memoryItemId,
-                        `Linear Issue Created: ${result.url}`
-                    );
-                }
-                break;
+        // Fetch user's credentials for this service
+        const credential = await getUserCredential(userId, mapping.service);
+        if (!credential) {
+            return NextResponse.json(
+                { error: `${mapping.service} is not connected. Please connect it in Settings > Integrations first.` },
+                { status: 403 }
+            );
+        }
 
-            case "draft_gmail_reply":
-                result = await createGmailDraft(
-                    action.payload.to,
-                    action.payload.subject,
-                    action.payload.body
-                );
-                successMessage = "Gmail draft created successfully! Check your Gmail drafts.";
-                if (memoryItemId) {
-                    await updateMemoryItemContext(
-                        memoryItemId,
-                        `Gmail Reply Drafted to: ${action.payload.to}`
-                    );
-                }
-                break;
+        // Decrypt credentials
+        let decrypted;
+        try {
+            decrypted = decryptCredentials({
+                encrypted: credential.encrypted_credentials,
+                iv: credential.iv,
+                authTag: credential.auth_tag,
+            });
+        } catch (authError: any) {
+            return NextResponse.json(
+                { error: `Authentication failed for ${mapping.service}. Your credentials could not be decrypted (likely due to a security key change). Please disconnect and reconnect this service in Settings > Integrations.` },
+                { status: 403 }
+            );
+        }
 
-            default:
-                return NextResponse.json(
-                    { error: `Unsupported action type: ${action.type}` },
-                    { status: 400 }
-                );
+        // Get service and execute
+        const serviceDef = getService(mapping.service);
+        if (!serviceDef) {
+            return NextResponse.json(
+                { error: `Service not found: ${mapping.service}` },
+                { status: 500 }
+            );
+        }
+
+        const result = await serviceDef.execute(mapping.tool, action.payload, decrypted);
+
+        if (!result.success) {
+            return NextResponse.json(
+                { error: result.error || "Action execution failed" },
+                { status: 500 }
+            );
+        }
+
+        // Update memory item context with link/info
+        if (memoryItemId && result.displayMessage) {
+            await updateMemoryItemContext(memoryItemId, result.displayMessage);
         }
 
         console.log(`Execution success: ${action.type}`);
-        return NextResponse.json({ success: true, result, successMessage });
+        return NextResponse.json({
+            success: true,
+            result: result.data,
+            successMessage: result.displayMessage || "Action executed successfully!",
+        });
     } catch (error: any) {
         console.error("Error executing action:", error);
         return NextResponse.json(

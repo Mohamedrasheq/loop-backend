@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import type { MemoryItem, Notification, NotificationStatus } from "@/types";
+import type { MemoryItem, Notification, NotificationStatus, UserCredential } from "@/types";
 
 // Lazy initialization to avoid build-time errors
 let supabaseInstance: SupabaseClient | null = null;
@@ -8,15 +8,17 @@ function getSupabase(): SupabaseClient {
     if (supabaseInstance) return supabaseInstance;
 
     const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+    // For backend operations, we prefer the service role key to bypass RLS
+    // Fall back to anon key if service role is not provided
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 
-    if (!supabaseUrl || !supabaseAnonKey) {
+    if (!supabaseUrl || !supabaseKey) {
         throw new Error(
-            "Missing Supabase credentials. Please set SUPABASE_URL and SUPABASE_ANON_KEY in .env.local"
+            "Missing Supabase credentials. Please set SUPABASE_URL and either SUPABASE_SERVICE_ROLE_KEY or SUPABASE_ANON_KEY in .env.local"
         );
     }
 
-    supabaseInstance = createClient(supabaseUrl, supabaseAnonKey);
+    supabaseInstance = createClient(supabaseUrl, supabaseKey);
     return supabaseInstance;
 }
 
@@ -368,6 +370,128 @@ export async function updateNotificationStatus(
     } catch (error) {
         console.error("Supabase connection error:", error);
         return false;
+    }
+}
+
+// ── User Credential Operations ──
+
+/**
+ * Upsert encrypted credentials for a user + service combination.
+ */
+export async function upsertUserCredential(
+    userId: string,
+    service: string,
+    encryptedCredentials: string,
+    iv: string,
+    authTag: string,
+    metadata: Record<string, any> = {}
+): Promise<boolean> {
+    try {
+        const supabase = getSupabase();
+        const { error } = await supabase
+            .from("user_credentials")
+            .upsert(
+                {
+                    user_id: userId,
+                    service,
+                    encrypted_credentials: encryptedCredentials,
+                    iv,
+                    auth_tag: authTag,
+                    metadata,
+                    updated_at: new Date().toISOString(),
+                },
+                { onConflict: "user_id,service" }
+            );
+
+        if (error) {
+            console.error("Error upserting user credential:", error);
+            return false;
+        }
+
+        return true;
+    } catch (error) {
+        console.error("Supabase connection error:", error);
+        return false;
+    }
+}
+
+/**
+ * Get encrypted credential for a specific user + service.
+ */
+export async function getUserCredential(
+    userId: string,
+    service: string
+): Promise<UserCredential | null> {
+    try {
+        const supabase = getSupabase();
+        const { data, error } = await supabase
+            .from("user_credentials")
+            .select("*")
+            .eq("user_id", userId)
+            .eq("service", service)
+            .single();
+
+        if (error || !data) {
+            return null;
+        }
+
+        return data;
+    } catch (error) {
+        console.error("Supabase connection error:", error);
+        return null;
+    }
+}
+
+/**
+ * Delete a user's credential for a specific service.
+ */
+export async function deleteUserCredential(
+    userId: string,
+    service: string
+): Promise<boolean> {
+    try {
+        const supabase = getSupabase();
+        const { error } = await supabase
+            .from("user_credentials")
+            .delete()
+            .eq("user_id", userId)
+            .eq("service", service);
+
+        if (error) {
+            console.error("Error deleting user credential:", error);
+            return false;
+        }
+
+        return true;
+    } catch (error) {
+        console.error("Supabase connection error:", error);
+        return false;
+    }
+}
+
+/**
+ * Get all connected services for a user (service names + metadata only, no credentials).
+ */
+export async function getUserConnectedServices(
+    userId: string
+): Promise<Array<{ service: string; metadata: Record<string, any>; connected_at: string }>> {
+    try {
+        const supabase = getSupabase();
+        const { data, error } = await supabase
+            .from("user_credentials")
+            .select("service, metadata, connected_at")
+            .eq("user_id", userId)
+            .order("connected_at", { ascending: true });
+
+        if (error) {
+            console.error("Error fetching connected services:", error);
+            return [];
+        }
+
+        return data || [];
+    } catch (error) {
+        console.error("Supabase connection error:", error);
+        return [];
     }
 }
 

@@ -189,10 +189,12 @@ You MUST return a valid JSON object with the following structure:
 }
 
 RULES FOR captured_item:
-- ALWAYS extract a captured_item from the user's message.
+- Only extract a captured_item if the user's message contains something ACTIONABLE — a task to do, something to follow up on, or information to remember.
+- For general questions ("what is React?", "how does async work?", "explain X"), casual conversation ("hello", "thanks", "how are you?"), or opinions ("what do you think about...") → set captured_item to null.
 - If no clear date mentioned: set due_at to null.
 - If unclear urgency: default to "medium".
 - type: "task" = something to DO, "follow_up" = something to CHECK ON, "note" = info to REMEMBER.
+- When in doubt about whether the message is a real task or just a question, set captured_item to null. Only capture items that the user clearly wants to track.
 
 RULES FOR proposed_actions:
 - Only propose an action when the user's message clearly implies a platform action.

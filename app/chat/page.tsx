@@ -42,13 +42,15 @@ export default function ChatPage() {
     const [executionResults, setExecutionResults] = useState<Record<string, { success: boolean; message: string }>>({});
 
     useEffect(() => {
-        fetchGithubRepos();
-        fetchLinearContext();
-    }, []);
+        if (userId) {
+            fetchGithubRepos();
+            fetchLinearContext();
+        }
+    }, [userId]);
 
     const fetchGithubRepos = async () => {
         try {
-            const res = await fetch('/api/github/repos');
+            const res = await fetch(`/api/github/repos?userId=${userId}`);
             if (res.ok) setGithubRepos(await res.json());
         } catch (err) {
             console.error("Error fetching github repos:", err);
@@ -57,7 +59,7 @@ export default function ChatPage() {
 
     const fetchLinearContext = async () => {
         try {
-            const res = await fetch('/api/linear/context');
+            const res = await fetch(`/api/linear/context?userId=${userId}`);
             if (res.ok) {
                 const data = await res.json();
                 setLinearTeams(data.teams || []);
