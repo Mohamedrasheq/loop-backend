@@ -344,5 +344,209 @@ export async function runAgent(
         captured_item: capturedItem,
         proposed_actions: [],
         tool_results: toolResults.length > 0 ? toolResults : undefined,
+        connected_services: connectedServiceNames,
+    };
+}
+
+/**
+ * Streaming version of runAgent.
+ * Yields SSE-compatible event objects as the agent processes.
+ */
+export type StreamEvent =
+    | { type: "text_delta"; text: string }
+    | { type: "tool_use"; tool: string; status: "running" }
+    | { type: "tool_result"; tool: string; success: boolean; displayMessage?: string; error?: string }
+    | { type: "done"; reply: string; proposed_actions: any[]; tool_results: any[]; connected_services: string[] };
+
+export async function* runAgentStreaming(
+    userId: string,
+    message: string,
+    timezone: string
+): AsyncGenerator<StreamEvent> {
+    const anthropic = getAnthropic();
+
+    // 1. Fetch connected services
+    const connectedServices = await getUserConnectedServices(userId);
+    const connectedServiceNames = connectedServices.map((s) => s.service);
+
+    // 2. Build tools from connected services
+    const serviceTools = getToolsForConnectedServices(connectedServiceNames);
+    const availableServices = getAvailableServicesInfo();
+
+    // 3. Build Anthropic tools array
+    const tools: Anthropic.Tool[] = [
+        {
+            name: "list_available_integrations",
+            description: "List all available integrations and their connection status. Use when the user asks about connecting services or what integrations are available.",
+            input_schema: {
+                type: "object" as const,
+                properties: {},
+                required: [],
+            },
+        },
+        ...serviceTools.map(({ tool }) => ({
+            name: tool.name,
+            description: tool.description,
+            input_schema: toolSchemaToJsonSchema(tool),
+        })),
+    ];
+
+    // 4. Build system prompt
+    const systemPrompt = buildSystemPrompt(connectedServiceNames, availableServices);
+
+    // 5. Run conversation with tool use loop (streaming)
+    const messages: Anthropic.MessageParam[] = [
+        {
+            role: "user",
+            content: `[Current time: ${new Date().toISOString()}, Timezone: ${timezone}]\n\n${message}`,
+        },
+    ];
+
+    const toolResults: AgentResponse["tool_results"] = [];
+    let finalReply = "";
+
+    for (let i = 0; i < 5; i++) {
+        // Use streaming API
+        const stream = anthropic.messages.stream({
+            model: MODEL,
+            max_tokens: 1200,
+            system: systemPrompt,
+            tools,
+            messages,
+        });
+
+        for await (const event of stream) {
+            if (event.type === "content_block_delta") {
+                const delta = event.delta as any;
+                if (delta.type === "text_delta") {
+                    finalReply += delta.text;
+                    yield { type: "text_delta", text: delta.text };
+                }
+            }
+        }
+
+        const finalMessage = await stream.finalMessage();
+        const toolUseBlocks = finalMessage.content.filter(
+            (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
+        );
+
+        if (toolUseBlocks.length === 0 || finalMessage.stop_reason === "end_turn") {
+            break;
+        }
+
+        const toolResultsForMessage: Anthropic.ToolResultBlockParam[] = [];
+
+        for (const toolUse of toolUseBlocks) {
+            let toolResultContent: string;
+
+            yield { type: "tool_use", tool: toolUse.name, status: "running" };
+
+            if (toolUse.name === "list_available_integrations") {
+                const status = {
+                    connected: connectedServices.map((s) => ({
+                        service: s.service,
+                        metadata: s.metadata,
+                    })),
+                    available: availableServices.map((s) => ({
+                        name: s.name,
+                        displayName: s.displayName,
+                        description: s.description,
+                        connected: connectedServiceNames.includes(s.name),
+                    })),
+                };
+                toolResultContent = JSON.stringify(status);
+                toolResults.push({
+                    tool: "list_available_integrations",
+                    success: true,
+                    data: status,
+                    displayMessage: "Listed available integrations.",
+                });
+                yield { type: "tool_result", tool: "list_available_integrations", success: true, displayMessage: "Listed available integrations." };
+            } else {
+                const matchingServiceTool = serviceTools.find(
+                    (st) => st.tool.name === toolUse.name
+                );
+
+                if (!matchingServiceTool) {
+                    toolResultContent = JSON.stringify({ error: `Unknown tool: ${toolUse.name}` });
+                    toolResults.push({
+                        tool: toolUse.name,
+                        success: false,
+                        error: `Unknown tool: ${toolUse.name}`,
+                    });
+                    yield { type: "tool_result", tool: toolUse.name, success: false, error: `Unknown tool: ${toolUse.name}` };
+                } else {
+                    const credential = await getUserCredential(userId, matchingServiceTool.service.name);
+                    if (!credential) {
+                        toolResultContent = JSON.stringify({
+                            error: `No credentials found for ${matchingServiceTool.service.displayName}. Please connect it first.`,
+                        });
+                        toolResults.push({
+                            tool: toolUse.name,
+                            success: false,
+                            error: `Service ${matchingServiceTool.service.displayName} not connected.`,
+                        });
+                        yield { type: "tool_result", tool: toolUse.name, success: false, error: `Service ${matchingServiceTool.service.displayName} not connected.` };
+                    } else {
+                        try {
+                            const decrypted = decryptCredentials({
+                                encrypted: credential.encrypted_credentials,
+                                iv: credential.iv,
+                                authTag: credential.auth_tag,
+                            });
+
+                            const result = await matchingServiceTool.service.execute(
+                                toolUse.name,
+                                toolUse.input as Record<string, any>,
+                                decrypted
+                            );
+
+                            toolResultContent = JSON.stringify(result);
+                            toolResults.push({
+                                tool: toolUse.name,
+                                success: result.success,
+                                data: result.data,
+                                displayMessage: result.displayMessage,
+                                error: result.error,
+                            });
+                            yield { type: "tool_result", tool: toolUse.name, success: result.success, displayMessage: result.displayMessage, error: result.error };
+                        } catch (decryptError: any) {
+                            toolResultContent = JSON.stringify({
+                                error: `Authentication failed for ${matchingServiceTool.service.displayName}. Please disconnect and reconnect it.`,
+                            });
+                            toolResults.push({
+                                tool: toolUse.name,
+                                success: false,
+                                error: `Decryption failed: ${decryptError.message}`,
+                            });
+                            yield { type: "tool_result", tool: toolUse.name, success: false, error: `Decryption failed: ${decryptError.message}` };
+                        }
+                    }
+                }
+            }
+
+            toolResultsForMessage.push({
+                type: "tool_result",
+                tool_use_id: toolUse.id,
+                content: toolResultContent,
+            });
+        }
+
+        messages.push({ role: "assistant", content: finalMessage.content });
+        messages.push({ role: "user", content: toolResultsForMessage });
+    }
+
+    let cleanedReply = finalReply;
+    const extractedMatchDone = cleanedReply.match(/<extracted>([\s\S]*?)<\/extracted>/);
+    if (extractedMatchDone) {
+        cleanedReply = cleanedReply.replace(/<extracted>[\s\S]*?<\/extracted>/, "").trim();
+    }
+
+    yield {
+        type: "done",
+        reply: cleanedReply || "I processed your request.",
+        proposed_actions: [],
+        tool_results: toolResults,
+        connected_services: connectedServiceNames,
     };
 }

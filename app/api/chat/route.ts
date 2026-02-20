@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createMemoryItem, updateMemoryItem, createNotification } from "@/lib/supabase";
 import { generateNotificationContent } from "@/lib/llm";
 import { scheduleNotification } from "@/lib/upstash";
-import { runAgent } from "@/lib/claude-agent";
+import { runAgent, runAgentStreaming } from "@/lib/claude-agent";
 import {
     CHAT_SYSTEM_PROMPT,
     buildChatUserPrompt,
@@ -22,16 +22,10 @@ function getOpenAI(): OpenAI {
 
 /**
  * POST /api/chat
- *
- * Unified chat endpoint:
- * 1. Extracts tasks/items using OpenAI (fast, cheap)
- * 2. Runs Claude Agent for tool-use and conversational reply
- * 3. Saves captured items to Supabase
- * 4. Returns reply + proposed actions + tool results
  */
 export async function POST(request: NextRequest) {
     try {
-        const { userId, text, timezone } = await request.json();
+        const { userId, text, timezone, stream = false } = await request.json();
 
         if (!userId || !text || !timezone) {
             return NextResponse.json(
@@ -40,9 +34,8 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Step 1: Extract task/item using OpenAI (keeps existing capture logic)
+        // Step 1: Extract task/item using OpenAI (fast, synchronous before stream)
         const openai = getOpenAI();
-
         const extraction = await openai.chat.completions.create({
             model: EXTRACTION_MODEL,
             messages: [
@@ -59,10 +52,7 @@ export async function POST(request: NextRequest) {
         try {
             parsed = JSON.parse(rawContent);
         } catch {
-            parsed = {
-                captured_item: null,
-                proposed_actions: [],
-            };
+            parsed = { captured_item: null, proposed_actions: [] };
         }
 
         // Step 2: Save captured item to database (existing logic)
@@ -79,7 +69,6 @@ export async function POST(request: NextRequest) {
                 status: "open",
             });
 
-            // Schedule notification if due date is in the future
             if (memoryItem && item.due_at) {
                 const dueDate = new Date(item.due_at);
                 if (dueDate > new Date()) {
@@ -95,7 +84,6 @@ export async function POST(request: NextRequest) {
 
                         if (messageId) {
                             await updateMemoryItem(memoryItem.id, { scheduled_message_id: messageId });
-
                             await createNotification({
                                 user_id: userId,
                                 memory_item_id: memoryItem.id,
@@ -111,18 +99,52 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        // Step 3: Run Claude Agent for conversational reply + tool use
-        const agentResponse = await runAgent(userId, text, timezone);
+        // Step 3: Run Claude Agent (Streaming or Legacy)
+        if (stream) {
+            const encoder = new TextEncoder();
+            const agentStream = runAgentStreaming(userId, text, timezone);
 
+            const readableStream = new ReadableStream({
+                async start(controller) {
+                    try {
+                        for await (const event of agentStream) {
+                            // Format as SSE: data: <payload>\n\n
+                            const data = JSON.stringify(
+                                event.type === "done"
+                                    ? { ...event, proposed_actions: parsed.proposed_actions || [] }
+                                    : event
+                            );
+                            controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+                        }
+                        controller.close();
+                    } catch (err) {
+                        controller.error(err);
+                    }
+                },
+            });
+
+            return new Response(readableStream, {
+                headers: {
+                    "Content-Type": "text/event-stream",
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                },
+            });
+        }
+
+        // Non-streaming fallback
+        const agentResponse = await runAgent(userId, text, timezone);
         return NextResponse.json({
             reply: agentResponse.reply,
             proposed_actions: parsed.proposed_actions || [],
             tool_results: agentResponse.tool_results,
+            connected_services: agentResponse.connected_services,
         });
-    } catch (error) {
+
+    } catch (error: any) {
         console.error("Error in /api/chat:", error);
         return NextResponse.json(
-            { error: "Internal server error" },
+            { error: error.message || "Internal server error" },
             { status: 500 }
         );
     }

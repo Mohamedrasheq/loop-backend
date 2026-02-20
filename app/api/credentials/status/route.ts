@@ -32,6 +32,7 @@ export async function GET(req: Request) {
                 connected_at: s.connected_at,
             })),
             available: allServices.filter((s) => !connectedNames.includes(s.name)),
+            all: allServices,
         };
 
         return NextResponse.json(response);

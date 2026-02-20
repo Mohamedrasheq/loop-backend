@@ -171,6 +171,19 @@ export interface CredentialStatusResponse {
       placeholder?: string;
     }>;
   }>;
+  all: Array<{
+    name: string;
+    displayName: string;
+    description: string;
+    credentialFields: Array<{
+      key: string;
+      label: string;
+      type: string;
+      required: boolean;
+      helpUrl?: string;
+      placeholder?: string;
+    }>;
+  }>;
 }
 
 // ── Agent Types ──
@@ -186,4 +199,5 @@ export interface AgentResponse {
     displayMessage?: string;
     error?: string;
   }>;
+  connected_services?: string[];
 }
