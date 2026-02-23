@@ -495,3 +495,67 @@ export async function getUserConnectedServices(
     }
 }
 
+
+// ── RevenueCat / Subscription Operations ──
+
+/**
+ * Update or create a user's pro status in the profiles table.
+ */
+export async function updateUserProStatus(
+    userId: string,
+    isPro: boolean
+): Promise<boolean> {
+    try {
+        const supabase = getSupabase();
+        const { error } = await supabase
+            .from("profiles")
+            .upsert(
+                {
+                    user_id: userId,
+                    is_pro: isPro,
+                    updated_at: new Date().toISOString(),
+                },
+                { onConflict: "user_id" }
+            );
+
+        if (error) {
+            console.error("Error updating user pro status:", error);
+            return false;
+        }
+
+        return true;
+    } catch (error) {
+        console.error("Supabase connection error:", error);
+        return false;
+    }
+}
+
+/**
+ * Log a RevenueCat webhook event for auditing.
+ */
+export async function logRevenueCatEvent(
+    userId: string,
+    eventType: string,
+    payload: any
+): Promise<boolean> {
+    try {
+        const supabase = getSupabase();
+        const { error } = await supabase
+            .from("revenuecat_events")
+            .insert({
+                user_id: userId,
+                event_type: eventType,
+                payload,
+            });
+
+        if (error) {
+            console.error("Error logging RevenueCat event:", error);
+            return false;
+        }
+
+        return true;
+    } catch (error) {
+        console.error("Supabase connection error:", error);
+        return false;
+    }
+}

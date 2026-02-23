@@ -201,3 +201,19 @@ export interface AgentResponse {
   }>;
   connected_services?: string[];
 }
+
+// ── Subscription / RevenueCat Types ──
+
+export interface Profile {
+  user_id: string;
+  is_pro: boolean;
+  updated_at: string;
+}
+
+export interface RevenueCatEvent {
+  id: string;
+  user_id: string;
+  event_type: string;
+  payload: any;
+  created_at: string;
+}
