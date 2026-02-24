@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useUser } from "@clerk/nextjs";
 import CaptureInput from "@/components/CaptureInput";
+import DashboardLayout from "@/components/DashboardLayout";
 
 interface Message {
     id: string;
@@ -459,77 +460,79 @@ export default function ChatPage() {
     };
 
     return (
-        <div className="container-main py-8 flex flex-col h-screen">
-            {/* Header */}
-            <header className="mb-6">
-                <h1 className="text-3xl font-bold tracking-tight text-foreground">
-                    Capture
-                </h1>
-                <p className="text-muted-foreground mt-1">
-                    Tell me what&apos;s on your mind — I&apos;ll suggest actions across GitHub, Linear, and Gmail
-                </p>
-            </header>
+        <DashboardLayout>
+            <div className="container-main py-8 flex flex-col h-screen">
+                {/* Header */}
+                <header className="mb-6">
+                    <h1 className="text-3xl font-bold tracking-tight text-foreground page-header-gradient">
+                        Capture
+                    </h1>
+                    <p className="text-muted-foreground mt-1">
+                        Tell me what&apos;s on your mind — I&apos;ll suggest actions across GitHub, Linear, and Gmail
+                    </p>
+                </header>
 
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto mb-6 space-y-4">
-                {messages.map((message) => (
-                    <div key={message.id}>
-                        {message.type === "actions" ? (
-                            <div className="flex justify-start">
-                                <div className="max-w-[85%] space-y-3 fade-in">
-                                    <p className="text-sm text-muted-foreground italic px-1">{message.text}</p>
-                                    {message.actions?.map((action: any, idx: number) =>
-                                        renderActionCard(action, idx, message.id)
-                                    )}
+                {/* Messages */}
+                <div className="flex-1 overflow-y-auto mb-6 space-y-4">
+                    {messages.map((message) => (
+                        <div key={message.id}>
+                            {message.type === "actions" ? (
+                                <div className="flex justify-start">
+                                    <div className="max-w-[85%] space-y-3 fade-in">
+                                        <p className="text-sm text-muted-foreground italic px-1">{message.text}</p>
+                                        {message.actions?.map((action: any, idx: number) =>
+                                            renderActionCard(action, idx, message.id)
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
-                        ) : (
-                            <div className={`flex ${message.type === "user" ? "justify-end" : "justify-start"}`}>
-                                <div
-                                    className={`max-w-[70%] p-4 rounded-2xl fade-in ${message.type === "user"
-                                        ? "bg-gradient-to-br from-primary-500 to-primary-600 text-white rounded-br-md"
-                                        : "glass-card text-foreground rounded-bl-md"
-                                        }`}
-                                >
-                                    <p className="leading-relaxed">{message.text}</p>
-                                    <p
-                                        className={`text-xs mt-2 ${message.type === "user"
-                                            ? "text-white/70"
-                                            : "text-muted-foreground"
+                            ) : (
+                                <div className={`flex ${message.type === "user" ? "justify-end" : "justify-start"}`}>
+                                    <div
+                                        className={`max-w-[70%] p-4 rounded-2xl fade-in ${message.type === "user"
+                                            ? "bg-gradient-to-br from-primary-500 to-primary-600 text-white rounded-br-md"
+                                            : "glass-card text-foreground rounded-bl-md"
                                             }`}
                                     >
-                                        {message.timestamp.toLocaleTimeString([], {
-                                            hour: "2-digit",
-                                            minute: "2-digit",
-                                        })}
-                                    </p>
+                                        <p className="leading-relaxed">{message.text}</p>
+                                        <p
+                                            className={`text-xs mt-2 ${message.type === "user"
+                                                ? "text-white/70"
+                                                : "text-muted-foreground"
+                                                }`}
+                                        >
+                                            {message.timestamp.toLocaleTimeString([], {
+                                                hour: "2-digit",
+                                                minute: "2-digit",
+                                            })}
+                                        </p>
+                                    </div>
                                 </div>
-                            </div>
-                        )}
-                    </div>
-                ))}
+                            )}
+                        </div>
+                    ))}
 
-                {/* Thinking indicator */}
-                {isThinking && (
-                    <div className="flex justify-start">
-                        <div className="glass-card text-foreground rounded-bl-md p-4 rounded-2xl fade-in">
-                            <div className="flex items-center gap-2">
-                                <div className="flex gap-1">
-                                    <div className="w-2 h-2 bg-primary-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                                    <div className="w-2 h-2 bg-primary-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                                    <div className="w-2 h-2 bg-primary-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                    {/* Thinking indicator */}
+                    {isThinking && (
+                        <div className="flex justify-start">
+                            <div className="glass-card text-foreground rounded-bl-md p-4 rounded-2xl fade-in">
+                                <div className="flex items-center gap-2">
+                                    <div className="flex gap-1">
+                                        <div className="w-2 h-2 bg-primary-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                                        <div className="w-2 h-2 bg-primary-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                                        <div className="w-2 h-2 bg-primary-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                                    </div>
+                                    <span className="text-sm text-muted-foreground">Thinking...</span>
                                 </div>
-                                <span className="text-sm text-muted-foreground">Thinking...</span>
                             </div>
                         </div>
-                    </div>
-                )}
-            </div>
+                    )}
+                </div>
 
-            {/* Input */}
-            <div className="sticky bottom-0 bg-background pt-4">
-                <CaptureInput onSubmit={handleSubmit} />
+                {/* Input */}
+                <div className="sticky bottom-0 bg-background pt-4">
+                    <CaptureInput onSubmit={handleSubmit} />
+                </div>
             </div>
-        </div>
+        </DashboardLayout>
     );
 }
