@@ -3,6 +3,9 @@ import { NextResponse } from "next/server";
 
 const isPublicRoute = createRouteMatcher([
     "/",           // Landing page is public
+    "/privacy",    // Legal pages are public
+    "/terms",
+    "/eula",
     "/sign-in(.*)",
     "/sign-up(.*)",
     "/api/(.*)", // Allow API routes to be public so they can be accessed via userId (e.g., from Expo)

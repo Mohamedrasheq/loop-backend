@@ -266,6 +266,10 @@ export default function LandingPage() {
             <span className="text-gray-400 text-sm font-normal">· Your calm chief-of-staff</span>
           </div>
           <div className="flex items-center gap-6 text-sm text-gray-500 font-medium">
+            <Link href="/privacy" className="hover:text-gray-900 transition-colors">Privacy</Link>
+            <Link href="/terms" className="hover:text-gray-900 transition-colors">Terms</Link>
+            <Link href="/eula" className="hover:text-gray-900 transition-colors">EULA</Link>
+            <span className="text-gray-200">|</span>
             <Link href="/sign-in" className="hover:text-gray-900 transition-colors">Sign In</Link>
             <Link href="/sign-up" className="hover:text-gray-900 transition-colors">Sign Up</Link>
           </div>
